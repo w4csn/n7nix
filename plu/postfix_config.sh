@@ -44,10 +44,38 @@ function check_user() {
    dbgecho "using USER: $USER"
 }
 
+# ===== function start_service
+
+function start_service() {
+    service="$1"
+    systemctl is-enabled "$service" > /dev/null 2>&1
+    if [ $? -ne 0 ] ; then
+        echo "ENABLING $service"
+        systemctl enable "$service"
+        if [ "$?" -ne 0 ] ; then
+            echo "Problem ENABLING $service"
+        fi
+    fi
+    # Is service alread running?
+    systemctl is-active "$service"
+    if [ "$?" -eq 0 ] ; then
+        # service is already running, restart it to update config changes
+        systemctl --no-pager restart "$service"
+        if [ "$?" -ne 0 ] ; then
+            echo "Problem re-starting $service"
+        fi
+    else
+        # service is not yet running so start it up
+        systemctl --no-pager start "$service"
+        if [ "$?" -ne 0 ] ; then
+            echo "Problem starting $service"
+        fi
+    fi
+}
+
 # ===== main
 
-echo
-echo "Postfix config START"
+echo -e "\n\tConfigure postfix\n"
 
 # Be sure we're running as root
 if [[ $EUID != 0 ]] ; then
@@ -72,8 +100,9 @@ check_user
 program_name="postfix"
 type -P $program_name &>/dev/null
 if [ $? -ne 0 ] ; then
-   echo "$scriptname: No $program_name program found in path ... exiting"
-   exit 1
+   echo "$scriptname: No $program_name program found in path ... installing"
+   # Program name & package name are the same
+   apt-get install -y -q $program_name
 else
    dbgecho "Program: $program_name  found"
 fi
@@ -90,31 +119,41 @@ else
 fi
 
 # Check if postfix main file has been modified
-grep "transport_maps" /etc/postfix/main.cf
+
+postfix_main_cfg_file="/etc/postfix/main.cf"
+grep "transport_maps" "$postfix_main_cfg_file"
 if [ $? -ne 0 ] ; then
-  cat << EOT >> /etc/postfix/main.cf
+    # Comment out previous 'inet_protocols =' entry
+    sed -i -e "/^inet_protocols =/ s/^/# /" $postfix_main_cfg_file
+    cat << EOT >> "$postfix_main_cfg_file"
+
+inet_protocols = ipv4
 transport_maps = hash:/etc/postfix/transport
 smtp_host_lookup = dns, native
 EOT
 fi
 
+POSTFIX_DESTINATION='$myhostname.localhost, $myhostname, localhost.localdomain, localhost'
+sed -i -e "/mydestination = / s/mydestination =.*/mydestination=$POSTFIX_DESTINATION/" $postfix_main_cfg_file
+sed -i -e "/myhostname = / s/myhostname = .*/myhostname = $(hostname).localnet/" $postfix_main_cfg_file
+sed -i -e "/inet_protocols = / s/inet_protocols = .*/inet_protocols = ipv4/" $postfix_main_cfg_file
+
 # Specify a pathname ending in "/" for qmail-style delivery.
-# This needs to match mail client configuration.
+# This needs to match mail client & dovecot configuration.
 postconf -e "home_mailbox = Mail/"
 
 # Make a transport file
 {
 echo "localhost     :"
-echo "$(hostname)     local:"
-echo "$(hostname).localnet     local:"
+echo "$(hostname)             local:"
+echo "$(hostname).localnet    local:"
+echo "$(hostname).localhost   local:"
 echo "#"
 echo "*         wl2k:localhost"
 } > /etc/postfix/transport
 
 # create transport database file
 postmap /etc/postfix/transport
-systemctl restart postfix
-systemctl status postfix
 
 # create /etc/aliases
 {
@@ -127,7 +166,10 @@ echo "nobody:  $USER"
 
 newaliases
 
-echo "$(date "+%Y %m %d %T %Z"): $scriptname: postfix config script FINISHED" >> $UDR_INSTALL_LOGFILE
+# restart postfix for new configuration to take affect
+start_service postfix
+systemctl --no-pager status postfix
+
 echo
-echo "postfix config FINISHED"
+echo "$(date "+%Y %m %d %T %Z"): $scriptname: postfix config script FINISHED" | tee -a $UDR_INSTALL_LOGFILE
 echo

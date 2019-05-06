@@ -61,9 +61,12 @@ case $APP_SELECT in
 
    ;;
    pluimap)
-      echo "$scriptname: Install paclink-unix with imap"
+#      echo "$scriptname: Install paclink-unix with imap"
+      echo  "$scriptname: pluimap is under development, just use 'plu'"
       pushd ../plu
-      source ./pluimap_install.sh
+
+      source ./plu_install.sh
+
       popd > /dev/null
    ;;
    uronode)
@@ -73,7 +76,7 @@ case $APP_SELECT in
       popd > /dev/null
    ;;
    tracker)
-      echo "$scriptname: Install dantracker"
+      echo "$scriptname: Install tracker (nix or dan)"
       pushd ../tracker
       source ./tracker_install.sh
       popd > /dev/null
@@ -87,7 +90,7 @@ case $APP_SELECT in
       popd > /dev/null
       pushd ../tracker
       echo "Change to normal login user & cd to ~/n7nix/tracker"
-      echo "Now run tracker_install.sh"
+      echo " then run tracker_install.sh"
 
 ##      source ./tracker_install.sh
       popd > /dev/null
@@ -100,7 +103,6 @@ case $APP_SELECT in
    ;;
 esac
 
-echo "$(date "+%Y %m %d %T %Z"): $scriptname: app install ($APP_SELECT) script FINISHED" >> $UDR_INSTALL_LOGFILE
 echo
-echo "app install ($APP_SELECT) script FINISHED"
+echo "$(date "+%Y %m %d %T %Z"): $scriptname: app install ($APP_SELECT) script FINISHED" | tee -a  $UDR_INSTALL_LOGFILE
 echo

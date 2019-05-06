@@ -11,37 +11,43 @@ BINDIR=/usr/local/bin
 UDRCII=false
 
 # portname set in /etc/ax25/axports
-PORTNAME="udr0"
+PORTNAME_1="udr0"
+PORTNAME_2="udr1"
 SERIALPORT_DIREWOLF="/tmp/kisstnc"
+IPADDR_AX0="192.168.255.2"
+IPADDR_AX1="192.168.255.3"
 
 firmware_prodfile="/sys/firmware/devicetree/base/hat/product"
 firmware_prod_idfile="/sys/firmware/devicetree/base/hat/product_id"
 firmware_vendorfile="/sys/firmware/devicetree/base/hat/vendor"
 
-PROD_ID_NAMES=("INVALID" "INVALID" "UDRC" "UDRC II" "1WSpot")
+PROD_ID_NAMES=("INVALID" "INVALID" "UDRC" "UDRC II" "DRAWS" "1WSpot")
 NWDIG_VENDOR_NAME="NW Digital Radio"
 
 function dbgecho { if [ ! -z "$DEBUG" ] ; then echo "$*"; fi }
 
 # ===== function EEPROM id_check
+
 # Return code:
 # 0 = no EEPROM or no device tree found
 # 1 = HAT found but not a UDRC
 # 2 = UDRC
 # 3 = UDRC II
-# 4 = 1WSpot
+# 4 = DRAWS
+# 5 = 1WSpot
 
 function id_check() {
 # Initialize to EEPROM not found
 udrc_prod_id=0
+
 # Does firmware file exist
 if [ -f $firmware_prodfile ] ; then
    # Read product file
-   UDRC_PROD="$(cat $firmware_prodfile)"
+   UDRC_PROD="$(tr -d '\0' < $firmware_prodfile)"
    # Read vendor file
-   FIRM_VENDOR="$(cat $firmware_vendorfile)"
+   FIRM_VENDOR="$(tr -d '\0' < $firmware_vendorfile)"
    # Read product id file
-   UDRC_ID="$(cat $firmware_prod_idfile)"
+   UDRC_ID="$(tr -d '\0' < $firmware_prod_idfile)"
    #get last character in product id file
    UDRC_ID=${UDRC_ID: -1}
 
@@ -55,8 +61,11 @@ if [ -f $firmware_prodfile ] ; then
          "Universal Digital Radio Controller II")
             udrc_prod_id=3
          ;;
-         "1WSpot")
+         "Digital Radio Amateur Work Station")
             udrc_prod_id=4
+         ;;
+         "1WSpot")
+            udrc_prod_id=5
          ;;
          *)
             echo "Found something but not a UDRC: $UDRC_PROD"
@@ -89,7 +98,7 @@ return $udrc_prod_id
 
 # ===== main =====
 
-echo "ax25-upd: Start Port ${PORTNAME} with device ${SERIALPORT_DIREWOLF}"
+echo "ax25-upd: Start Port ${PORTNAME_1} with device ${SERIALPORT_DIREWOLF}"
 
 if [ -L $SERIALPORT_DIREWOLF ] ; then
     echo "Direwolf serial port ready"
@@ -115,34 +124,43 @@ case $id_check_ret in
 # use port 1 with mkiss
    pseudoterm=$($SBINDIR/mkiss $SERIALPORT_DIREWOLF /dev/ptmx none | tail -1)
    echo "using mkiss with UDRC and pseudo term=$pseudoterm on port 1"
-   $SBINDIR/kissattach  ${pseudoterm} ${PORTNAME} 44.24.197.66 >/tmp/ax25-config.tmp
+   $SBINDIR/kissattach  ${pseudoterm} ${PORTNAME_1} ${IPADDR_AX0} >/tmp/ax25-config.tmp
    kissattach_ret=$?
+   dbgecho "kissattach return: $?"
+   /etc/ax25/ax25dev-parms ax0
 ;;
-3)
-   echo "UDRC II installed"
+3|4)
+   echo "UDRC II or DRAWS installed"
 # use port 2 with mkiss
-   pseudoterm=$($SBINDIR/mkiss $SERIALPORT_DIREWOLF none /dev/ptmx | tail -1)
-   echo "using mkiss with UDRC II and pseudo term=$pseudoterm on port 2"
-   $SBINDIR/kissattach  ${pseudoterm} ${PORTNAME} 44.24.197.66 >/tmp/ax25-config.tmp
+   pseudoterm=$($SBINDIR/mkiss $SERIALPORT_DIREWOLF /dev/ptmx /dev/ptmx | tail -1)
+   echo "$pseudoterm" > /tmp/ax25-config.tmp
+   pseudoterm_1=$(echo $pseudoterm | cut -d ' ' -f1)
+   pseudoterm_2=$(echo $pseudoterm | cut -d ' ' -f2)
+   echo "using mkiss with UDRC II and pseudo term_1: $pseudoterm_1 pseudo term_2: $pseudoterm_2"
+   $SBINDIR/kissattach  ${pseudoterm_1} ${PORTNAME_1} ${IPADDR_AX0} >/tmp/ax25-config_1.tmp
+   $SBINDIR/kissattach  ${pseudoterm_2} ${PORTNAME_2} ${IPADDR_AX1} >/tmp/ax25-config_2.tmp
    kissattach_ret=$?
+   dbgecho "kissattach return: $?"
+   /etc/ax25/ax25dev-parms ax0
+   /etc/ax25/ax25dev-parms ax1
+   echo " Port ${PORTNAME_1} attached to ax0"
+   echo " Port ${PORTNAME_2} attached to ax1"
 ;;
-4)
+5)
    echo "One Watt Spot installed"
 # use port 1 with mkiss
    pseudoterm=$($SBINDIR/mkiss $SERIALPORT_DIREWOLF /dev/ptmx none | tail -1)
    echo "using mkiss with UDRC and pseudo term=$pseudoterm on port 1"
-   $SBINDIR/kissattach  ${pseudoterm} ${PORTNAME} 44.24.197.66 >/tmp/ax25-config.tmp
+   $SBINDIR/kissattach  ${pseudoterm} ${PORTNAME_1} ${IPADDR_AX0} >/tmp/ax25-config.tmp
    kissattach_ret=$?
+   dbgecho "kissattach return: $?"
+   /etc/ax25/ax25dev-parms ax0
 ;;
 *)
    echo "Invalid udrc id ... exiting"
    exit 1
 ;;
 esac
-
-dbgecho "kissattach return: $?"
-
-/etc/ax25/ax25dev-parms
 
 # configure netrom
 # Needs a callsign

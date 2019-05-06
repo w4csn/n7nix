@@ -41,9 +41,8 @@ LIBFAP_VER="1.5"
 LIBINIPARSER_VER="3.1"
 NODEJS_VER="8.4.0"
 
-BIN_FILES="iptable-up.sh iptable-flush.sh iptable-check.sh tracker-up tracker-down tracker-restart .screenrc.trk"
-#PKGLIST="hostapd dnsmasq iptables iptables-persistent"
-PKGLIST="build-essential pkg-config imagemagick automake autoconf libtool libgps-dev iptables screen"
+BIN_FILES="tracker-up tracker-down tracker-restart .screenrc.trk"
+PKGLIST="build-essential pkg-config imagemagick automake autoconf libtool libgps-dev screen"
 
 # ===== function dbgecho
 
@@ -256,51 +255,29 @@ done
 sed -i -e "s/\$user/$user/" $BIN_DIR/tracker-up
 sed -i -e "s/\$user/$user/" $BIN_DIR/tracker-restart
 
-# Note: This should be in core_install.sh
-#
-# These rules block Bonjour/Multicast DNS (mDNS) addresses from iTunes
-# or Avahi daemon.  Avahi is ZeroConf/Bonjour compatible and installed
-# by default.
-#
-# Setup iptables then install iptables-persistent or manually update
-# rules.v4
-
-# Setup some iptable rules
-echo
-echo "== setup iptables"
-sudo $BIN_DIR/iptable-up.sh
-
-pkg_name="iptables-persistent"
-is_pkg_installed $pkg_name
-if [ $? -ne 0 ] ; then
-   # installing iptables-persistent automatically saves current iptable
-   # rules to /etc/iptables/rules.v4
-   echo "$scriptname: Will Install $pkg_name program"
-   sudo apt-get -y install iptables-persistent
-else
-   # Since iptables-peristent is already installed have to update
-   # rules to /etc/iptables/rules.v4 manually
-   sudo iptables-save > /etc/iptables/rules.v4
-fi
-
 if [ ! -d $TRACKER_CFG_DIR ] ; then
    sudo mkdir -p $TRACKER_CFG_DIR
 fi
 
+# If config file does not exist copy template to /etc/tracker
 if [ -f $TRACKER_CFG_FILE ] ; then
    echo "** tracker already config'ed in $TRACKER_CFG_DIR"
    echo "** please edit manually."
 else
-   sudo cp $TRACKER_N7NIX_FILE $TRACKER_CFG_DIR
+   sudo cp $TRACKER_N7NIX_DIR/aprs_tracker.ini $TRACKER_CFG_FILE
 fi
 
 # Need to set a user in config file
 CFG_USER=$(grep -i "user" $TRACKER_CFG_FILE | cut -d"=" -f2 | tr -d ' ')
 if [ -z $CFG_USER ] ; then
-{
-echo "user = $user"
-} >> $TRACKER_CFG_FILE
+   echo "user = $user" | sudo tee -a $TRACKER_CFG_FILE
 fi
+
+# Need to set a CALLSIGN in config file
+echo "Set callsign TBD"
+
+# Need to set a lat/long
+echo "Set static lat/lon TBD"
 
 echo
 echo "== setup systemd service"
@@ -326,7 +303,6 @@ else
    echo "System service $SERVICE_NAME already installed."
 fi
 
-echo "$(date "+%Y %m %d %T %Z"): $scriptname: ${tracker_type}tracker install script FINISHED" >> $UDR_INSTALL_LOGFILE
 echo
-echo "${tracker_type}tracker build & install FINISHED"
+echo "$(date "+%Y %m %d %T %Z"): $scriptname: ${tracker_type}tracker build & install script FINISHED" | sudo tee -a $UDR_INSTALL_LOGFILE
 echo

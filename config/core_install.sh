@@ -3,13 +3,14 @@
 # Run this after copying a fresh compass file system image
 #
 # Uncomment this statement for debug echos
-DEBUG=1
+#DEBUG=1
 
 scriptname="`basename $0`"
 UDR_INSTALL_LOGFILE="/var/log/udr_install.log"
 
 #DIREWOLF SOURCE VERSION to build
-DW_VER="1.4"
+#DW_VER="1.5"
+DW_VER="direwolf-dev"
 
 # do upgrade, update outside of script since it can take some time
 UPDATE_NOW=false
@@ -142,10 +143,16 @@ ldconfig
 # ===== function install direwolf from source
 
 function install_direwolf_source() {
-   num_cores=$(nproc --all)
-   echo "=== Install direwolf version $DW_VER from source using $num_cores cores"
+    num_cores=$(nproc --all)
+
+    echo "=== Install direwolf version $DW_VER from source using $num_cores cores"
+
+#   apt-get install gpsd
+    apt-get install libgps-dev
+
    SRC_DIR="/usr/local/src/"
    cd "$SRC_DIR"
+
 # This gets current HOT version
 #   git clone https://www.github.com/wb2osz/direwolf
 #   cd direwolf
@@ -163,6 +170,7 @@ function install_direwolf_source() {
 
    echo "copying direwolf config file from source to /etc/direwolf.conf"
    cp /root/direwolf.conf /etc
+   mv /root/direwolf.conf /root/direwolf.conf.dist
    # Build from source puts executable in /usr/local/bin
    # Copy executable here to not have to edit sysd/direwolf.service file
    cp /usr/local/bin/direwolf /usr/bin
@@ -184,9 +192,77 @@ function install_direwolf_pkg() {
    fi
 }
 
+# ===== function get product id of HAT
+
+function get_prod_id() {
+# Initialize product ID
+PROD_ID=
+prgram="udrcver.sh"
+which $prgram
+if [ "$?" -eq 0 ] ; then
+   dbgecho "Found $prgram in path"
+   $prgram -
+   PROD_ID=$?
+else
+   currentdir=$(pwd)
+   # Get path one level down
+   pathdn1=$( echo ${currentdir%/*})
+   dbgecho "Test pwd: $currentdir, path: $pathdn1"
+   if [ -e "$pathdn1/bin/$prgram" ] ; then
+       dbgecho "Found $prgram here: $pathdn1/bin"
+       $pathdn1/bin/$prgram -
+       PROD_ID=$?
+   else
+       echo "Could not locate $prgram default product ID to draws"
+       PROD_ID=4
+   fi
+fi
+}
+
+# ===== function modify /boot/config.txt
+
+function mod_config_txt() {
+echo " === Modify /boot/config.txt"
+
+# default to draws HAT
+set_dtoverly="dtoverlay=draws,alsaname=udrc"
+
+grep "force_turbo" /boot/config.txt > /dev/null 2>&1
+if [ $? -ne 0 ] ; then
+    if [[ "$PROD_ID" -eq 4 ]] ; then
+        set_dtoverlay="dtoverlay=draws,alsaname=udrc"
+    else
+        set_dtoverlay="dtoverlay=udrc"
+    fi
+    # Add to bottom of file
+    cat << EOT >> /boot/config.txt
+
+# enable udrc/draws if no eeprom
+$set_dtoverlay
+force_turbo=1
+EOT
+else
+    echo -e "\n\t$(tput setaf 4)File: /boot/config.txt NOT modified: prod_id=$PROD_ID $(tput setaf 7)\n"
+fi
+
+# To enable serial console disable bluetooth
+#  and change console to ttyAMA0
+if [ "$SERIAL_CONSOLE" = "true" ] ; then
+   echo "=== Disabling Bluetooth & enabling serial console"
+   cat << EOT >> /boot/config.txt
+# Enable serial console
+dtoverlay=pi3-disable-bt
+EOT
+   sed -i -e "/console/ s/console=serial0/console=ttyAMA0,115200/" /boot/cmdline.txt
+fi
+}
+
 # ===== main
 
 echo "Initial core install script"
+
+get_prod_id
+echo "HAT product id: $PROD_ID"
 
 # Be sure we're running as root
 if [[ $EUID != 0 ]] ; then
@@ -199,7 +275,7 @@ START_DIR=$(pwd)
 if [ "$UPDATE_NOW" = "true" ] ; then
    echo " === Check for updates"
    apt-get update
-   apt-get upgrade
+   apt-get upgrade -q -y
 fi
 
 install_build_tools
@@ -260,29 +336,8 @@ if [ $? -ne 0 ] ; then
    insmod /lib/modules/$(uname -r)/kernel/net/ax25/ax25.ko
 fi
 
-echo " === Modify /boot/config.txt"
-
-grep "force_turbo" /boot/config.txt > /dev/null 2>&1
-if [ $? -ne 0 ] ; then
-  # Add to bottom of file
-  cat << EOT >> /boot/config.txt
-
-# enable udrc if no eeprom
-# dtoverlay=udrc
-force_turbo=1
-EOT
-fi
-
-# To enable serial console disable bluetooth
-#  and change console to ttyAMA0
-if [ "$SERIAL_CONSOLE" = "true" ] ; then
-   echo "=== Disabling Bluetooth & enabling serial console"
-   cat << EOT >> /boot/config.txt
-# Enable serial console
-dtoverlay=pi3-disable-bt
-EOT
-   sed -i -e "/console/ s/console=serial0/console=ttyAMA0,115200/" /boot/cmdline.txt
-fi
+# Edit /boot/config.txt
+mod_config_txt
 
 # Add ax25 packages here
 echo " === Install libax25, ax25apps & ax25tools"
@@ -290,7 +345,7 @@ cd $START_DIR
 cd ..
 echo "Installing from this directory $(pwd)"
 
-dpkg -i ./ax25/debpkg/libax25_1.0.5-1_armhf.deb
+dpkg -i ./ax25/debpkg/libax25_1.1.0-1_armhf.deb
 dpkg -i ./ax25/debpkg/ax25apps_1.0.5-1_armhf.deb
 dpkg -i ./ax25/debpkg/ax25tools_1.0.3-1_armhf.deb
 
@@ -300,6 +355,12 @@ ax25_lib
 echo " === libax25, ax25apps & ax25tools install FINISHED"
 
 cd $START_DIR
+
+# gps required before direwolf build
+pushd ../gps
+echo "=== $scriptname: Install DRAWS gps programs"
+./install.sh
+popd > /dev/null
 
 # Test if direwolf has previously been installed.
 #  - if not installed try installing Debian package
@@ -331,26 +392,16 @@ fi
 
 echo " === direwolf install FINISHED"
 
-SRC_DIR="/usr/local/src/udrc"
-
-# Does source directory for udrc alsa level setup script exist?
-if [ ! -d $SRC_DIR ] ; then
-   mkdir -p $SRC_DIR
-   if [ $? -ne 0 ] ; then
-      echo "Problems creating source directory: $SRC_DIR"
-      exit 1
-   fi
+echo " === time sync before: $(date)"
+program_name="chronyd"
+type -P "$program_name"  &>/dev/null
+if [ $? -eq 0 ] ; then
+    echo "Daemon: ${program_name} found"
+    sudo chronyc makestep
 else
-   dbgecho "Source dir: $SRC_DIR already exists"
+    echo -e "\n\t$(tput setaf 1)Chrony NOT installed $(tput setaf 7)\n"
 fi
-
-cd $SRC_DIR
-wget -O set-udrc-din6.sh -qt 3 https://goo.gl/7rXUFJ
-if [ $? -ne 0 ] ; then
-   echo "FAILED to download alsa level setup file."
-   exit 1
-fi
-chmod +x set-udrc-din6.sh
+echo " === time sync after: $(date)"
 
 echo "$(date "+%Y %m %d %T %Z"): $scriptname: core install script FINISHED" >> $UDR_INSTALL_LOGFILE
 echo

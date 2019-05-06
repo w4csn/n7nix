@@ -13,6 +13,15 @@ UDR_INSTALL_LOGFILE="/var/log/udr_install.log"
 
 function dbgecho { if [ ! -z "$DEBUG" ] ; then echo "$*"; fi }
 
+# ===== function install_mutt
+
+function install_mutt() {
+    # Include gpgsm to mitigate: GPGME: CMS protocol not available
+    PKG_REQUIRE_MUTT="mutt gpgsm"
+    echo "$scriptname: Will Install $pkg_name package"
+    sudo apt-get install -y -q $PKG_REQUIRE_MUTT
+    sudo apt-mark auto gpgsm
+}
 # ===== function get_user
 
 function get_user() {
@@ -23,6 +32,26 @@ function get_user() {
       echo "Enter user name ($(echo $USERLIST | tr '\n' ' ')), followed by [enter]:"
       read -e USER
    fi
+}
+
+# ==== function check_user
+# verify user name is legit
+
+function check_user() {
+   userok=false
+   dbgecho "$scriptname: Verify user name: $USER"
+   for username in $USERLIST ; do
+      if [ "$USER" = "$username" ] ; then
+         userok=true;
+      fi
+   done
+
+   if [ "$userok" = "false" ] ; then
+      echo "User name ($USER) does not exist,  must be one of: $USERLIST"
+      exit 1
+   fi
+
+   dbgecho "using USER: $USER"
 }
 
 # ===== function get_callsign
@@ -74,30 +103,17 @@ else
    echo "USER=$USER not null"
 fi
 
-# verify user name is legit
-userok=false
-
-for username in $USERLIST ; do
-   if [ "$USER" = "$username" ] ; then
-      userok=true;
-   fi
-done
-
-if [ "$userok" = "false" ] ; then
-   echo "User name does not exist,  must be one of: $USERLIST"
-   exit 1
-fi
-
-dbgecho "using USER: $USER"
+check_user
 
 # Check for a valid callsign
 get_callsign
 
 # Check if mutt has been installed
+program_name="mutt"
 type -P $program_name  &>/dev/null
 if [ $? -ne 0 ] ; then
-   echo "$scriptname: No $program_name program found in path ... exiting"
-   exit 1
+   echo "$scriptname: Program: $program_name not found in path ... installing"
+   install_mutt
 else
    dbgecho "Program: $program_name  found"
 fi

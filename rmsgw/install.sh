@@ -2,28 +2,24 @@
 #
 # Install Updates for the Linux RMS Gateway
 #
-# Parts taken from RMS-Upgrade-181 script Updated 10/30/2014
+# 10/30/2014
+# Parts taken from RMS-Upgrade-181 script
 # (https://groups.yahoo.com/neo/groups/LinuxRMS/files)
 # by C Schuman, K4GBB k4gbb1gmail.com
+#
+# 10/29/2018
+# Changed to use git from this repo:
+# github.com/nwdigitalradio/rmsgw
 #
 # Uncomment this statement for debug echos
 DEBUG=1
 
 scriptname="`basename $0`"
 UDR_INSTALL_LOGFILE="/var/log/udr_install.log"
-
-# Color Codes
-Reset='\e[0m'
-Red='\e[31m'
-Green='\e[32m'
-Yellow='\e[33m'
-Blue='\e[34m'
-White='\e[37m'
-BluW='\e[37;44m'
+REPO_BASE_DIR="$HOME/dev/github"
+RMSGW_BUILD_DIR="$REPO_BASE_DIR/rmsgw"
 
 PKG_REQUIRE="xutils-dev libxml2 libxml2-dev python-requests"
-SRC_DIR="/usr/local/src/ax25/rmsgw"
-ROOTFILE_NAME="rmsgw-"
 RMS_BUILD_FILE="rmsbuild.txt"
 
 function dbgecho { if [ ! -z "$DEBUG" ] ; then echo "$*"; fi }
@@ -35,19 +31,74 @@ function is_pkg_installed() {
 return $(dpkg-query -W -f='${Status}' $1 2>/dev/null | grep -c "ok installed" >/dev/null 2>&1)
 }
 
+
+# ===== function get_user
+
+function get_user() {
+   # Check if there is only a single user on this system
+   if (( `ls /home | wc -l` == 1 )) ; then
+      USER=$(ls /home)
+   else
+      echo "Enter user name ($(echo $USERLIST | tr '\n' ' ')), followed by [enter]:"
+      read -e USER
+   fi
+}
+
+# ==== function check_user
+# verify user name is legit
+
+function check_user() {
+   userok=false
+   dbgecho "$scriptname: Verify user name: $USER"
+   for username in $USERLIST ; do
+      if [ "$USER" = "$username" ] ; then
+         userok=true;
+      fi
+   done
+
+   if [ "$userok" = "false" ] ; then
+      echo "User name ($USER) does not exist,  must be one of: $USERLIST"
+      exit 1
+   fi
+
+   dbgecho "using USER: $USER"
+}
+
+#
 # ===== main
+#
 
-# echo -e "${BluW}\n \t  Update Linux RMS Gate \n${White}  Script
-# provided by Charles S. Schuman ( K4GBB )  \n${Red}               k4gbb1@gmail.com \n${Reset}"
-echo -e "${BluW}\n \t  Install Linux RMS Gate \n${White}  Parts of this Script provided by Charles S. Schuman ( K4GBB )  \n${Reset}"
+echo -e "$(tput setaf 6)\n \t  Install Linux RMS Gateway\n$(tput setaf 7)  Parts of this Script provided by Charles S. Schuman ( K4GBB )  \n"
 
-# Be sure we're running as root
-if [[ $EUID != 0 ]] ; then
-   echo "Must be root"
+# Running as root?
+if [[ $EUID == 0 ]] ; then
+   echo
+   echo "Not required to run this script as root ...."
    exit 1
 fi
 
-# check if packages are installed
+# Get list of users with home directories
+USERLIST="$(ls /home)"
+USERLIST="$(echo $USERLIST | tr '\n' ' ')"
+
+# if there are any args on command line assume it's
+# user name & callsign
+if (( $# != 0 )) ; then
+   USER="$1"
+else
+   get_user
+fi
+
+if [ -z "$USER" ] ; then
+   echo "USER string is null, get_user"
+   get_user
+else
+   echo "USER=$USER not null"
+fi
+
+check_user
+
+# check if required packages are installed
 dbgecho "Check packages: $PKG_REQUIRE"
 needs_pkg=false
 
@@ -61,12 +112,12 @@ for pkg_name in `echo ${PKG_REQUIRE}` ; do
    fi
 done
 
-if [ "$needs_pkg" = "true" ] ; then
-   echo -e "${BluW}\t Installing Support libraries \t${Reset}"
+if $needs_pkg ; then
+   echo -e "$(tput setaf 6)\t Installing Support libraries \t$(tput setaf 7)"
 
-   apt-get install -y -q $PKG_REQUIRE
+   sudo apt-get install -y -q $PKG_REQUIRE
    if [ "$?" -ne 0 ] ; then
-      echo "Support library install failed. Please try this command manually:"
+      echo "$(tput setaf 1)Support library install failed. Please try this command manually:$(tput setaf 7)"
       echo "apt-get install -y $PKG_REQUIRE"
       exit 1
    fi
@@ -74,85 +125,74 @@ fi
 
 echo "All required packages installed."
 
-# Does source directory exist?
-if [ ! -d $SRC_DIR ] ; then
-   mkdir -p $SRC_DIR
+#
+# Use git to either get the rmsgw repo or update it.
+#
+
+# Find shortest path to rmsgw dir - not used
+find "$HOME" -type d -name "rmsgw" -printf "%d %p\n" | sort -n | cut -d' ' -f2 | head -1
+
+# go to repo dir $REPO_BASE_DIR
+
+# Does repo directory exist?
+if [ ! -d $REPO_BASE_DIR ] ; then
+   mkdir -p $REPO_BASE_DIR
    if [ "$?" -ne 0 ] ; then
-      echo "Problems creating source directory: $SRC_DIR"
-      exit 1
-   fi
-fi
-
-cd $SRC_DIR
-
-# Determine if any rmsgw tgz files have been downloaded
-ls rmsgw-*.tgz 2>/dev/null
-if [ $? -ne 0 ] ; then
-   echo -e "${BluW}\t Downloading RMS Gateway Source file \t${Reset}"
-
-   # wget -qt 3 http://k4gbb.no-ip.info/docs/scripts/$Version.tgz
-
-   # Note: the following  didn't work
-   #       Problematic to download a file from yahoo groups,
-   # wget --no-check-certificate -t 3 https://groups.yahoo.com/neo/groups/LinuxRMS/files/Software/*.tgz
-
-   wget -r -l1 -H -t1 -nd -N -np -qt 3 -A ".tgz" http://k4gbb.no-ip.info/docs/scripts/
-   if [ $? -ne 0 ] ; then
-      echo "Problems downloading file,"
-      echo "  go to https://groups.yahoo.com/neo/groups/LinuxRMS/files/Software"
-      echo  "  and download from a browser, run this script again."
+      echo "Problems creating repo directory: $REPO_BASE_DIR"
       exit 1
    fi
 else
-   # Get here if some tgz files were found
-   TGZ_FILELIST="$(ls rmsgw-*.tgz |tr '\n' ' ')"
-
-   echo "Already have rmsgw install file(s): $TGZ_FILELIST"
-   echo "To check for a new version move .tgz file(s) out of this directory"
+   echo "Repo directory: $REPO_BASE_DIR already exists, will try to update"
 fi
 
-# Lists all .tgz files in directory
-# Last file listed should have lastest version number
-for filename in *.tgz ; do
-   rms_ver="$(echo ${filename#r*-} | cut -d '.' -f1,2,3)"
-#   echo "$filename version: $rms_ver"
-done
+# Does repo directory exist?
+if [ ! -d "$RMSGW_BUILD_DIR" ] ; then
+   # repo not there so clone it
+   cd $REPO_BASE_DIR
+   git clone https://github.com/nwdigitalradio/rmsgw
+   if [ "$?" -ne 0 ] ; then
+      echo "$(tput setaf 1)Problem cloning repository rmsgw$(tput setaf 7)"
+      exit 1
+   fi
+   # Change permissions to USER for build
+   sudo chown -R $USER:$USER $RMSGW_BUILD_DIR
+else
+   echo "Directory rmsgw already exists, attempting to update"
+   cd $RMSGW_BUILD_DIR
+   # Test if this diretory is really a git repo
+   git rev-parse --is-inside-work-tree
+   if [ "$?" -ne 0 ] ; then
+      echo "$(tput setaf 1)Directory is not a git repo$(tput setaf 7)"
+      echo "Change REPO_BASE_DIR variable at beginning of this script"
+      exit 1
+   fi
 
-dbgecho "Untarring this installation file: $filename, version: $rms_ver"
-
-tar xf $filename
-if [ $? -ne 0 ] ; then
- echo -e "${BluW}${Red}\t $filename File not available \t${Reset}"
- exit 1
+   git pull
+   if [ "$?" -ne 0 ] ; then
+      echo "$(tput setaf 1)Problem updating repository rmsgw$(tput setaf 7)"
+      exit 1
+   fi
 fi
 
-num_cores=$(nproc --all)
-echo -e "${BluW}\tCompiling RMS Source file using $num_cores cores\t${Reset}"
-
-cd $SRC_DIR/$ROOTFILE_NAME$rms_ver
-
-# Redirect stderr to stdout
+# Go to the build directory
+cd $RMSGW_BUILD_DIR
+echo -e "$(tput setaf 4)\t Build RMS Gateway source$(tput setaf 7)"
+# Redirect stderr to stdout & capture to a file
 make -j$num_cores > $RMS_BUILD_FILE 2>&1
 if [ $? -ne 0 ] ; then
-   echo -e "${BluW}$Red} \tCompile error${White} - check $RMS_BUILD_FILE File \t${Reset}"
+   echo -e "$(tput setaf 1)\tCompile error$(tput bold)$(tput setaf 7) - check $RMS_BUILD_FILE File \t$(tput sgr0)"
    exit 1
 fi
 
-if [[ $EUID != 0 ]] ; then
-   echo "Must be root to install."
-   echo "Become root, then 'make install'"
-   exit 1
-fi
-
-echo -e "${BluW}\t Installing RMS Gateway\t${Reset}"
-make install
+echo -e "$(tput setaf 4)\t Installing RMS Gateway$(tput setaf 7)"
+sudo make install
 if [ $? -ne 0 ] ; then
-  echo "Error during install."
+  echo "$(tput setaf 1)Error during install.$(tput setaf 7)"
   exit 1
 fi
 # rm /etc/rmsgw/stat/.*
 
-echo "$(date "+%Y %m %d %T %Z"): $scriptname: RMS Gateway updated" >> $UDR_INSTALL_LOGFILE
-echo -e "${BluW}RMS Gateway updated \t${Reset}"
+echo "$(date "+%Y %m %d %T %Z"): $scriptname: RMS Gateway updated" | sudo tee -a $UDR_INSTALL_LOGFILE
+echo -e "$(tput setaf 4)RMS Gateway updated \t$(tput setaf 7)"
 
 # (End of Script)

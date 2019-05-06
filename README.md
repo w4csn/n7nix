@@ -52,7 +52,7 @@ requirements this option also configures
 to start direwolf, AX.25 attach & AX.25 apps like mheardd at boot time.
 
 Regardless of what functionality you want to install the first thing to run is
-[core_install.sh](https://github.com/nwdigitalradio/n7nix/blob/master/CORE_INSTALL.md)
+[core_install.sh](https://github.com/nwdigitalradio/n7nix/blob/master/docs/CORE_INSTALL.md)
 which will do the initial configuring of the compass kernel & install
 AX.25 & direwolf.
 
@@ -115,8 +115,10 @@ connected to a network
 
 ### Other
 
-#### [Alpine mail client](https://github.com/nwdigitalradio/n7nix/blob/master/alpine/README.md)
+#### [Alpine mail client](https://github.com/nwdigitalradio/n7nix/tree/master/email/alpine)
+
 * Notes on building & getting the alpine mail client to work with paclink-unix.
+  * I don't recommend using Alpine, mutt is actively maintained and a better solution.
 
 #### [deviation](https://github.com/nwdigitalradio/n7nix/tree/master/deviation)
 
@@ -129,6 +131,6 @@ nice article on how to do that using an RTL SDR dongle.
 
 #### [vnc](https://github.com/nwdigitalradio/n7nix/blob/master/vnc)
 
-* systemd service file supplied by Ken Koster K7IPB.
+* systemd service file supplied by Ken Koster N7IPB.
 
 #### uronode

@@ -12,12 +12,6 @@ CALLSIGN0="$CALLSIGN-1"
 CALLSIGN1="$CALLSIGN-2"
 
 DIREWOLF_CFGFILE="/etc/direwolf.conf"
-firmware_prodfile="/sys/firmware/devicetree/base/hat/product"
-firmware_prod_idfile="/sys/firmware/devicetree/base/hat/product_id"
-firmware_vendorfile="/sys/firmware/devicetree/base/hat/vendor"
-
-PROD_ID_NAMES=("INVALID" "INVALID" "UDRC" "UDRC II" "1WSpot")
-NWDIG_VENDOR_NAME="NW Digital Radio"
 
 # Default to udrc II for gpio assignment
 chan1ptt_gpio=12
@@ -47,71 +41,40 @@ fi
 dbgecho "Using CALL SIGN: $CALLSIGN"
 }
 
-# ===== function EEPROM id_check
-# Return code:
+
+# ===== function get product id of HAT
+
+# Set PROD_ID:
 # 0 = no EEPROM or no device tree found
 # 1 = HAT found but not a UDRC
 # 2 = UDRC
 # 3 = UDRC II
-# 4 = 1WSpot
+# 4 = DRAWS
+# 5 = 1WSpot
 
-function id_check() {
-# Initialize to EEPROM not found
-udrc_prod_id=0
-dbgecho "Starting udrc id check"
-
-# Does firmware file exist
-if [ -f $firmware_prodfile ] ; then
-   # Read product file
-   UDRC_PROD="$(cat $firmware_prodfile)"
-   # Read product file
-   FIRM_VENDOR="$(cat $firmware_vendorfile)"
-   # Read product id file
-   UDRC_ID="$(cat $firmware_prod_idfile)"
-   #get last character in product id file
-   UDRC_ID=${UDRC_ID: -1}
-
-   dbgecho "UDRC_PROD: $UDRC_PROD, ID: $UDRC_ID"
-
-   if [[ "$FIRM_VENDOR" == "$NWDIG_VENDOR_NAME" ]] ; then
-      case $UDRC_PROD in
-         "Universal Digital Radio Controller")
-            udrc_prod_id=2
-         ;;
-         "Universal Digital Radio Controller II")
-            udrc_prod_id=3
-         ;;
-         "1WSpot")
-            udrc_prod_id=4
-         ;;
-         *)
-            echo "Found something but not a UDRC: $UDRC_PROD"
-            udrc_prod_id=1
-         ;;
-      esac
-   else
-
-      dbgecho "Probably not a NW Digital Radio product: $FIRM_VENDOR"
-      udrc_prod_id=1
-   fi
-
-   if [ udrc_prod_id != 0 ] && [ udrc_prod_id != 1 ] ; then
-      if (( UDRC_ID == udrc_prod_id )) ; then
-         dbgecho "Product ID match: $udrc_prod_id"
-      else
-         echo "Product ID MISMATCH $UDRC_ID : $udrc_prod_id"
-         udrc_prod_id=1
-      fi
-   fi
-   dbgecho "Found HAT for ${PROD_ID_NAMES[$UDRC_ID]} with product ID: $UDRC_ID"
+function get_prod_id() {
+# Initialize product ID
+PROD_ID=
+prgram="udrcver.sh"
+which $prgram
+if [ "$?" -eq 0 ] ; then
+   dbgecho "Found $prgram in path"
+   $prgram
+   PROD_ID=$?
 else
-   # RPi HAT ID EEPROM may not have been programmed in engineering samples
-   # or there is no RPi HAT installed.
-   udrc_prod_id=0
+   currentdir=$(pwd)
+   # Get path one level down
+   pathdn1=$( echo ${currentdir%/*})
+   dbgecho "Test pwd: $currentdir, path: $pathdn1"
+   if [ -e "$pathdn1/bin/$prgram" ] ; then
+       dbgecho "Found $prgram here: $pathdn1/bin"
+       $pathdn1/bin/$prgram -
+       PROD_ID=$?
+   else
+       echo "Could not locate $prgram default product ID to draws"
+       PROD_ID=4
+   fi
 fi
-
-dbgecho "Finished udrc id check: $udrc_prod_id"
-return $udrc_prod_id
 }
 
 # ===== main
@@ -164,8 +127,16 @@ fi
 
 dbgecho "using USER: $USER"
 
-# Check if direwolf config file exists in /etc
 filename="direwolf.conf"
+# Check if direwolf config file exists in /root
+# Remove confusion, this file is NOT to be used ast the direwolf config file.
+
+if [ -e "/root/$filename" ] ; then
+   mv /root/$filename /root/direwolf.conf.dist
+fi
+
+# Check if direwolf config file exists in /etc
+
 if [ ! -e "/etc/$filename" ] ; then
    # Check for a Debian package install
    if [ -e "/usr/share/doc/direwolf/examples/direwolf.conf.gz" ] ; then
@@ -193,13 +164,15 @@ else
 fi
 
 # Check which UDRC product is found
-id_check
-id_check_ret="$?"
+get_prod_id
 
-case $id_check_ret in
+case $PROD_ID in
 0|1)
-   echo "No UDRC found, exiting"
-   exit 1
+   echo "$(tput setaf 1)No udrc sound card found default to DRAWS$(tput setaf 7) "
+   # left channel
+   chan1ptt_gpio=12
+   # right channel
+   chan2ptt_gpio=23
 ;;
 2)
    echo "Original UDRC is installed."
@@ -210,6 +183,13 @@ case $id_check_ret in
    chan2ptt_gpio=23
 ;;
 4)
+   echo "Draws installed"
+   # left channel
+   chan1ptt_gpio=12
+   # right channel
+   chan2ptt_gpio=23
+;;
+5)
    echo "One Watt Spot installed"
    chan1ptt_gpio=-23
 ;;
@@ -228,8 +208,8 @@ if [ ! -z "$CARDNO" ] ; then
    CARDNO=$(echo $CARDNO | cut -d ' ' -f2 | cut -d':' -f1)
    echo "udrc is sound card #$CARDNO"
 else
-   echo "No udrc sound card found by aplay ... exiting"
-   exit 1
+   echo "$(tput setaf 1)No udrc sound card found by aplay ... $(tput setaf 7) "
+   # Used to exit here BUT there is no way to rerun core config.
 fi
 
 dbgecho "MYCALL"

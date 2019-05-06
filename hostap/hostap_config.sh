@@ -5,48 +5,50 @@
 # hosts, resolv.conf /etc/network/interfaces /etc/dhcpcd.conf
 DEBUG=1
 
+fixed_ip_address="10.0.44.1"
+ip_root=${fixed_ip_addr%.*}
+
 scriptname="`basename $0`"
 UDR_INSTALL_LOGFILE="/var/log/udr_install.log"
 SSID="NOT_SET"
+SERVICELIST="hostapd.service dnsmasq.service"
 
 # ===== function debugecho
 function dbgecho { if [ ! -z "$DEBUG" ] ; then echo "$*"; fi }
 
+# ===== function version_gt
+function version_gt() { test "$(printf '%s\n' "$@" | sort -V | head -n 1)" != "$1"; }
 
-# ===== function is_rpi3
+# ===== function is_pkg_installed
+function is_pkg_installed() {
 
-function is_rpi3() {
+return $(dpkg-query -W -f='${Status}' $1 2>/dev/null | grep -c "ok installed" >/dev/null 2>&1)
+}
 
-CPUINFO_FILE="/proc/cpuinfo"
-HAS_WIFI=0
-
-piver="$(grep "Revision" $CPUINFO_FILE)"
-piver="$(echo -e "${piver##*:}" | tr -d '[[:space:]]')"
-
-case $piver in
-a01040)
-   echo " Pi 2 Model B Mfg by Unknown"
-;;
-a01041)
-   echo " Pi 2 Model B Mfg by Sony"
-;;
-a21041)
-   echo " Pi 2 Model B Mfg by Embest"
-;;
-a22042)
-   echo " Pi 2 Model B with BCM2837 Mfg by Embest"
-;;
-a02082)
-   echo " Pi 3 Model B Mfg by Sony"
-   HAS_WIFI=1
-;;
-a22082)
-   echo " Pi 3 Model B Mfg by Embest"
-   HAS_WIFI=1
-;;
-esac
-
-return $HAS_WIFI
+# ===== function determine if RPi version has WiFi
+function get_has_WiFi() {
+# Initialize product ID
+HAS_WIFI=
+prgram="piver.sh"
+which $prgram
+if [ "$?" -eq 0 ] ; then
+   dbgecho "Found $prgram in path"
+   $prgram > /dev/null 2>&1
+   HAS_WIFI=$?
+else
+   currentdir=$(pwd)
+   # Get path one level down
+   pathdn1=$( echo ${currentdir%/*})
+   dbgecho "Test pwd: $currentdir, path: $pathdn1"
+   if [ -e "$pathdn1/bin/$prgram" ] ; then
+       dbgecho "Found $prgram here: $pathdn1/bin OK"
+       $pathdn1/bin/$prgram > /dev/null 2>&1
+       HAS_WIFI=$?
+   else
+       echo "Could not locate $prgram (ERROR) default to no WiFi found"
+       HAS_WIFI=0
+   fi
+fi
 }
 
 # ===== function copy_dnsmasq
@@ -61,17 +63,16 @@ fi
 # Create a new file
 cat > $1/dnsmasq.conf <<EOT
 interface=wlan0      # Use interface wlan0
-listen-address=10.0.44.1
+listen-address=$fixed_ip_address
 bind-interfaces      # Bind to the interface to be sure we aren't sending things elsewhere
 server=8.8.8.8       # Forward DNS requests to Google DNS
 domain-needed        # Don't forward short names
 bogus-priv           # Never forward addresses in the non-routed address spaces.
-dhcp-range=10.0.44.201,10.0.44.239,12h
+dhcp-range=${ip_root}.201,${ip_root}.239,12h
 EOT
 }
 
 # ===== function copy_hostapd
-
 function copy_hostapd() {
 
 echo "DEBUG: copy_hostapd: arg $1"
@@ -102,7 +103,10 @@ hw_mode=g
 channel=7
 
 # Enable 802.11n
+# Set proper Country Code
+country_code=US
 ieee80211n=1
+ieee80211d=1
 
 # Enable WMM
 wmm_enabled=1
@@ -116,6 +120,7 @@ macaddr_acl=0
 # Require clients to know the network name
 #ignore_broadcast_ssid=0
 
+## Authentication begin
 # Use WPA authentication
 #auth_algs=1
 
@@ -134,10 +139,48 @@ macaddr_acl=0
 EOT
 }
 
-# ===== function dnsmasq_config
+# ===== function seq_backup
+# Backup previous configuration file with a sequential name
+# ie. never destroy a backup file
+# arg 1 is path/root configuration file name
 
+function seq_backup() {
+    rootfname=$1
+    today="$( date +"%Y%m%d" )"
+    number=0
+    # -- in printf statement: whatever follows should not be interpreted
+    #    as a command line option to printf
+    suffix="$( printf -- '-%02d' "$number" )"
+
+    while test -e "$rootfname-$today$suffix.conf"; do
+        (( ++number ))
+        suffix="$( printf -- '-%02d' "$number" )"
+    done
+
+    fname="$rootfname-$today$suffix.conf"
+    mv ${rootfname}.conf $fname
+}
+
+
+# ===== function dnsmasq_config
 function dnsmasq_config() {
 
+# Check if a previous dnsmasq configuration file exists
+if [ -f "/etc/dnsmasq.conf" ] ; then
+   dnsmasq_linecnt=$(wc -l /etc/dnsmasq.conf)
+   # get rid of everything except line count
+   dnsmasq_linecnt=${dnsmasq_linecnt%% *}
+   dbgecho "dnsmasq.conf line count: $dnsmasq_linecnt"
+   if (("$dnsmasq_linecnt" > "10")) ; then
+      seq_backup "/etc/dnsmasq"
+      echo "Original dnsmasq config file saved as $fname"
+   fi
+fi
+
+# Previous dnsmasq config file should be saved at this point and there
+# should be no config file
+
+# Check if there is no dnsmasq config file
 if [ ! -f /etc/dnsmasq.conf ] ; then
    copy_dnsmasq "/etc"
 else
@@ -150,12 +193,13 @@ fi
 }
 
 # ===== hostapd_config
-
 function hostapd_config() {
+echo "Copy hostap config file."
 if [ ! -f /etc/hostapd/hostapd.conf ] ; then
    copy_hostapd "/etc/hostapd"
 else
    echo "/etc/hostapd/hostapd.conf already exists."
+   seq_backup "/etc/hostapd/hostapd"
    copy_hostapd "/tmp"
    echo "=== diff of current dnsmasq config ==="
    diff -b /etc/hostapd/hostapd.conf /tmp
@@ -163,10 +207,26 @@ else
 fi
 }
 
+# ===== function start_service
+function start_service() {
+    service="$1"
+    systemctl is-enabled "$service" > /dev/null 2>&1
+    if [ $? -ne 0 ] ; then
+        echo "ENABLING $service"
+        systemctl enable "$service"
+        if [ "$?" -ne 0 ] ; then
+            echo "Problem ENABLING $service"
+        fi
+    fi
+    systemctl --no-pager start "$service"
+    if [ "$?" -ne 0 ] ; then
+        echo "Problem starting $service"
+    fi
+}
 
 # ===== main
 
-echo "Config hostap on an RPi 3"
+echo " == Config hostap on an RPi 3"
 
 # Be sure we're running as root
 if [[ $EUID != 0 ]] ; then
@@ -174,47 +234,69 @@ if [[ $EUID != 0 ]] ; then
    exit 1
 fi
 
-is_rpi3
-if [ $? -eq "0" ] ; then
-   echo "Not running on an RPi 3 ... exiting"
+get_has_WiFi
+if [ $? -ne "0" ] ; then
+   echo "No WiFi found ... exiting"
    exit 1
 fi
 
-echo "Configuring: hostapd.conf"
+echo "== Found WiFi"
+
+echo "== Configuring: hostapd.conf"
 hostapd_config
 
-# edit hostapd to use new config file
+echo "Edit existing default config file to point to new config file."
+# edit default hostapd config to use new config file
 sed -i 's;\#DAEMON_CONF="";DAEMON_CONF="/etc/hostapd/hostapd.conf";' /etc/default/hostapd
 
+# Check dnsmasq version number for dns-root-data problem
+# Dnsmasq bug: in versions below 2.77 there is a recent bug that may
+# cause the hotspot not to start for some users. This can be resolved by
+# removing the dns-root-data.
 
-echo "Configuring: dnsmasq"
-if [ -f "/etc/dnsmasq.conf" ] ; then
-   dnsmasq_linecnt=$(wc -l /etc/dnsmasq.conf)
-   # get rid of everything except line count
-   dnsmasq_linecnt=${dnsmasq_linecnt%% *}
-   dbgecho "dnsmasq.conf line count: $dnsmasq_linecnt"
-   if (("$dnsmasq_linecnt" > "10")) ; then
-      mv /etc/dnsmasq.conf /etc/dnsmasq.conf.backup
-      echo "Original dnsmasq.conf saved as .backup"
-   fi
+echo "== Check dnsmasq Version number"
+current_dnsmasq_ver=$(dnsmasq --version | head -n1 | cut -d ' ' -f3)
+echo "Configuring: dnsmasq, running version: $current_dnsmasq_ver"
+
+check_dnsmasq_ver="2.77"
+
+if [ "$current_dnsmasq_ver" = "$check_dnsmasq_ver" ] ; then
+    echo "dnsmasq version is identical to check version: $check_dnsmasq_ver, OK"
+else
+    if version_gt $current_dnsmasq_ver $check_dnsmasq_ver ; then
+        echo "Current dnsmasq version is greater than check version($check_dnsmasq_ver), OK"
+    else
+        pkg_name="dns-root-data"
+        echo "Current dnsmasq version is less than check version($check_dnsmasq_ver), removing package dns-root-data"
+        is_pkg_installed $pkg_name
+        if [ $? -eq 0 ] ; then
+            echo "$scriptname: Will purge $pkg_name program"
+            sudo apt-get purge dns-root-data
+
+        fi
+    fi
 fi
+
+echo "== Configure dnsmasq"
 dnsmasq_config
 
 # set up IPV4 forwarding
-echo "Set IPV4 forwarding"
-ipf=$(cat /proc/sys/net/ipv4/ip_forward)
+echo "==Set IPV4 forwarding"
+#ipf=$(cat /proc/sys/net/ipv4/ip_forward)
+ipf="$(tr -d '\0' </proc/sys/net/ipv4/ip_forward)"
+
 echo "ip_forward is $ipf"
-if [ $ipf = "0" ] ; then
-  sh -c "echo 1 > /proc/sys/net/ipv4/ip_forward"
+if [ "$ipf" = "0" ] ; then
+    sh -c "echo 1 > /proc/sys/net/ipv4/ip_forward"
 fi
 
 sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' /etc/sysctl.conf
 
-echo "setup iptables"
+echo "== setup iptables"
 #echo "add iptables-restore to rc.local"
 # or use iptables-persistent
 CREATE_IPTABLES=false
-IPTABLES_FILES="/etc/iptables.ipv4.nat /lib/dhcpcd/dhcpcd-hooks/70-ipv4.nat"
+IPTABLES_FILES="/etc/iptables/rules.ipv4.nat /lib/dhcpcd/dhcpcd-hooks/70-ipv4.nat"
 for ipt_file in `echo ${IPTABLES_FILES}` ; do
 
    if [ -f $ipt_file ] ; then
@@ -229,31 +311,43 @@ if [ "$CREATE_IPTABLES" = "true" ] ; then
    iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
    iptables -A FORWARD -i eth0 -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT
    iptables -A FORWARD -i wlan0 -o eth0 -j ACCEPT
-   sh -c "iptables-save > /etc/iptables.ipv4.nat"
+   sh -c "iptables-save > /etc/iptables/rules.ipv4.nat"
 
    iptables -t nat -S
    iptables -S
    cat  > /lib/dhcpcd/dhcpcd-hooks/70-ipv4.nat <<EOF
-iptables-restore < /etc/iptables.ipv4.nat
+iptables-restore < /etc/iptables/rules.ipv4.nat
 EOF
 
 fi
 
+echo "== Give WiFi device a fixed IP address"
+currentdir=$(pwd)
+prgram="fixed_ip.sh"
+if [ -e "$currentdir/$prgram" ] ; then
+    dbgecho "Found $prgram here: $currentdir OK"
+    ./$currentdir/$prgram -w $fixed_ip_addr > /dev/null 2>&1
+fi
+
+echo "== start systemd services"
 systemctl daemon-reload
-service hostapd start
-service dnsmasq start
+for service in `echo ${SERVICELIST}` ; do
+    echo "Starting: $service"
+    start_service $service
+done
 
 echo
-echo "Test if $SERVICELIST services have been started."
+echo "Test if services: $SERVICELIST have been started."
 for service_name in `echo ${SERVICELIST}` ; do
 
-   systemctl is-active $service_name >/dev/null
-   if [ "$?" = "0" ] ; then
+   if systemctl is-active --quiet $service_name ; then
       echo "$service_name is running"
    else
       echo "$service_name is NOT running"
    fi
 done
+
+echo " === NEED to REBOOT ==="
 
 echo "$(date "+%Y %m %d %T %Z"): $scriptname: hostap config script FINISHED" >> $UDR_INSTALL_LOGFILE
 echo

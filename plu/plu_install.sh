@@ -6,6 +6,7 @@
 # Uncomment this statement for debug echos
 DEBUG=1
 #DEFER_BUILD=1
+USER=
 
 scriptname="`basename $0`"
 UDR_INSTALL_LOGFILE="/var/log/udr_install.log"
@@ -208,7 +209,7 @@ fi
 # Check that source dir belongs to user to that they can do a git pull
 #  if required.
 echo "=== test owner & group id of source directory"
-if [ $(stat -c "%U" $SRC_DIR/paclink-unix) != "$USER" ] || $(stat -c "%U" $SRC_DIR/paclink-unix) != "$USER" ] ; then
+if [ $(stat -c "%U" $SRC_DIR/paclink-unix) != "$USER" || $(stat -c "%G" $SRC_DIR/paclink-unix) != "$USER" ] ; then
    chown -R $USER:$USER $SRC_DIR/paclink-unix
 fi
 
@@ -233,11 +234,20 @@ if [ "$EXITFLAG" = "true" ] ; then
   exit 1
 fi
 
-echo "$(date "+%Y %m %d %T %Z"): $scriptname: paclink-unix basic install script FINISHED" >> $UDR_INSTALL_LOGFILE
+echo "$(date "+%Y %m %d %T %Z"): $scriptname: paclink-unix basic install script FINISHED" | tee -a $UDR_INSTALL_LOGFILE
 echo
 echo "paclink-unix install FINISHED"
 echo
 # install postfix
+# Test if postfix package has already been installed.
+pkg_name="postfix"
+is_pkg_installed $pkg_name
+if [ $? -ne 0 ] ; then
+   echo "$scriptname: Will Install $pkg_name package"
+   apt-get install -y -q $pkg_name
+   echo "$(date "+%Y %m %d %T %Z"): $scriptname: postfix install script FINISHED" | tee -a $UDR_INSTALL_LOGFILE
+fi
+
 source $CUR_DIR/postfix_install.sh
 # install mutt
 source $CUR_DIR/../email/mutt/mutt_install.sh $USER $CALLSIGN

@@ -2,7 +2,7 @@
 
 ## Install core components
 
-* This installation assumes you have already [installed core components](https://github.com/nwdigitalradio/n7nix/blob/master/CORE_INSTALL.md)
+* This installation assumes you have already [installed core components](https://github.com/nwdigitalradio/n7nix/blob/master/docs/CORE_INSTALL.md)
 
 ## Install RMS Gateway
 
@@ -76,6 +76,51 @@ tail: cannot open '/var/log/rms.debug' for reading: No such file or directory
 ```
 * on new installations the log file will be empty for up to 1/2 hour or so.
 
+##### Test using rmsgw_aci & rmschanstat
+* rmsgw_aci = Winlink gateway automatic check-in
+* as rmsgw run rmsgw_aci & rmschanstat
+
+* On Raspbian jessie the following works:
+  * As of 1/1/2018 you have to modify the rmschanstat script if you are using Raspbian stretch
+  * Look at this [Commit](https://github.com/nwdigitalradio/rmsgw/commit/b24c1a30e56326eb6edf868c86efe9ff4a8b7a25) for fix.
+```
+sudo -u rmsgw rmsgw_aci
+channel udr0 with callsign KF7FIT-10 on interface ax0 up
+#
+sudo -u rmsgw rmschanstat ax25 udr0 KF7FIT-10
+channel udr0 with callsign KF7FIT-10 on interface ax0 up
+```
+* On Raspbian stretch this fails because ifconfig output has changed between jessie & stretch
+
+```
+sudo -u rmsgw rmsgw_aci
+status for interface ax0: unavailable
+#
+root@garkbit:/etc/rmsgw# sudo -u rmsgw rmschanstat ax25 udr0 KE7KML-10
+status for interface ax0: unavailable
+```
+##### channels.xml #####
+* Used by rmschanstat.py & rmsgw_aci programs
+* lives in this directory:
+```
+/etc/rmsgw
+```
+* Some versions of the _/etc/rmsgw/channels.xml_ file have the following for the first 2 lines:
+```
+<?xml version="1.0" encoding="UTF-8"?>
+<rmschannels xmlns="http://www.w3sg.org/rmschannels"
+```
+* __This will not work__, it will prevent your station callsign from appearing on the Winlink:
+  *  packet station map
+  *  packet RMS List
+* use the following instead:
+  * Second line changes:
+    * from: _http://www.w3sg.org/rmschannels_
+    * to _http://www.namespace.org_
+```
+<?xml version="1.0" encoding="UTF-8"?>
+<rmschannels xmlns="http://www.namespace.org"
+```
 ### Sending daily RMS Gateway reports via email using CRON
 
 * See [Sending System reports via Winlink using CRON](https://github.com/nwdigitalradio/n7nix/blob/master/debug/MAILSYSREPORT.md)

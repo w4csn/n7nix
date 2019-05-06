@@ -1,13 +1,22 @@
 #!/bin/bash
 #
 # Build debian packages for libax25, ax25apps, ax25tools
+user="gunn"
+scriptname="`basename $0`"
 
 SRC_DIR="/usr/local/src/ax25/linuxax25-master"
-PKGDIR="/home/pi/n7nix/ax25/debpkg/"
-SUFFIX="1.0.5-1_armhf.deb"
+PKGDIR="/home/$user/n7nix/ax25/debpkg/"
 
 pkgname="libax25"
+SUFFIX="1.1.1-1_armhf.deb"
 PKGLONGNAME="$pkgname"_"$SUFFIX"
+
+# Be sure we are running as root
+if (( `id -u` != 0 )); then
+   echo "$scriptname: Sorry, must be root.  Exiting...";
+   exit 1;
+fi
+
 echo
 echo " ===== Make $pkgname Debian package"
 echo
@@ -33,6 +42,7 @@ fi
 # Summary: AX.25 ham radio applications
 
 pkgname="ax25apps"
+SUFFIX="2.0.0-1_armhf.deb"
 PKGLONGNAME="$pkgname"_"$SUFFIX"
 
 echo
@@ -57,10 +67,10 @@ if [ -e $PKGDIR?$PKGLONGNAME ] ; then
    mv $PKGDIR?$PKGLONGNAME $PKGDIR$PKGLONGNAME
 fi
 
-# Summary:  tools for AX.25 interface configuration
+# Summary:  tools for AX.25 interface configurqation
 
 pkgname="ax25tools"
-SUFFIX="1.0.3-1_armhf.deb"
+SUFFIX="1.0.4-1_armhf.deb"
 PKGLONGNAME="$pkgname"_"$SUFFIX"
 
 echo

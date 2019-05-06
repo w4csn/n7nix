@@ -8,7 +8,7 @@
 # Check file:
 #  /etc/network/interfaces
 #
-#DEBUG=1
+DEBUG=
 DEBUG_MODE="false"
 DEBUG_RESET_NETWORKING="false"
 SET_WIFI_IPADDR="false"
@@ -16,6 +16,7 @@ SET_WIFI_IPADDR="false"
 scriptname="`basename $0`"
 lanif="eth0"
 #lanif="enp3s0"
+if_file="/etc/network/interfaces"
 
 # WiFi ip address Should be on a different subnet than Lan ip address
 wan_ipaddr="10.0.44.1"
@@ -61,8 +62,25 @@ function set_static_lan()
 iface="$lanif"
 echo "$scriptname: writing files for static LAN ip address"
 fname="/etc/dhcpcd.conf"
-grep -i "interface $iface" $fname > /dev/null 2>&1
-if [ $? -ne 0 ] ; then
+
+need_manual_edit="false"
+
+# Determine if all 'interface eth0' lines are commented.
+while read -r line ; do
+    dbgecho "Processing $line"
+    # your code goes here
+    if [[ ${line:0:1} == "#" ]] ; then
+        dbgecho "Found comment char"
+    else
+        dbgecho "No comment"
+        need_manual_edit="true"
+    fi
+done < <(grep -i "interface $iface" $fname)
+
+# if an uncommented "interface eth0 line is found then have to edit
+# manually.
+
+if [[ "$need_manual_edit" != "true" ]] ; then
    cat <<EOT >> $fname
 
 interface $iface
@@ -77,16 +95,16 @@ else
    echo "$scriptname: file $fname already config'ed, edit manually"
 fi
 
-fname="/etc/network/interfaces"
-grep -i "iface $iface inet manual" $fname > /dev/null 2>&1
+grep -i "iface $iface inet manual" $if_file > /dev/null 2>&1
 if [ $? -ne 0 ] ; then
-   cat <<EOT >> $fname
+   cat <<EOT >> $if_file
 iface $iface inet manual
 EOT
 else
-   echo "$scriptname: file $fname already config'ed OK"
+   echo "$scriptname: file $if_file already config'ed OK"
 fi
 }
+
 # ===== function set_static_wan
 
 function set_static_wan()
@@ -100,23 +118,23 @@ network_addr="$ip_root.0"
 bcast_addr="$ip_root.255"
 
 fname="/etc/dhcpcd.conf"
-grep -i "interface $iface" $fname > /dev/null 2>&1
+grep -i "interface $iface" $if_file > /dev/null 2>&1
 if [ $? -ne 0 ] ; then
 
-cat <<EOT >> /etc/dhcpcd.conf
+cat <<EOT >> $fname
 
 interface $iface
-
   static ip_address=$1/24
+  static routers=${ip_root}.1
+  static domain_name_servers ${ip_root}.1 8.8.8.8
 EOT
 else
-   echo "$scriptname: file $fname already config'ed, edit manually"
+   echo "$scriptname: file $if_file already config'ed, edit manually"
 fi
 
-fname="/etc/network/interfaces"
-grep -i "iface $iface inet static" $fname > /dev/null 2>&1
+grep -i "iface $iface inet static" $if_file > /dev/null 2>&1
 if [ $? -ne 0 ] ; then
-   cat <<EOT >> /etc/network/interfaces
+   cat <<EOT >> $if_file
 allow-hotplug wlan0
 iface wlan0 inet static
   address $ip_addr
@@ -126,7 +144,7 @@ iface wlan0 inet static
 EOT
 
 else
-   echo "$scriptname: file $fname already config'ed edit manually"
+   echo "$scriptname: file $if_file already config'ed edit manually"
 fi
 }
 
@@ -145,13 +163,17 @@ function usage() {
 # ===== main
 
 # Check if $lanif network interface is already up
-ifcheck=$(grep -i $lanif /etc/network/interfaces)
+ifcheck=$(grep -i $lanif $if_file)
 retcode=$?
 # Does $lanif exist?
+dbgecho "Check for interface: $lanif"
 if [ $retcode -eq 0 ] ; then
-   ip_current=$(ip addr show $lanif | grep "inet\b" | awk '{print $2}' | cut -d/ -f1)
-   ip_root=${ip_current%.*}
+   echo "Found lan interface: $lanif in $if_file"
+else
+   echo "Lan interface: $lanif, does not exist in $if_file"
 fi
+ip_current=$(ip addr show $lanif | grep "inet\b" | awk '{print $2}' | cut -d/ -f1)
+ip_root=${ip_current%.*}
 
 # parse any args on command line
 if (( $# != 0 )) ; then
@@ -160,7 +182,8 @@ if (( $# != 0 )) ; then
 
    case $key in
       -d|--debug)
-         DEBUG_MODE="true"
+          DEBUG_MODE="true"
+	  DEBUG=1
       ;;
       -s|--show)
          ip -4 -o addr | awk '!/^[0-9]*: ?lo|link\/ether/ {gsub("/", " "); print $2" "$4}'
@@ -216,10 +239,10 @@ case $count_dots in
    ;;
 esac
 
+dbgecho "ip current: $ip_current, ip root: $ip_root"
+
 valid_ip $ip_addr
 retcode=$?
-
-
 if [ $retcode -eq 1 ] ; then
    echo "Invalid IP address: $ip_addr"
    exit 1
@@ -237,8 +260,8 @@ echo "ip addr: $lan_ipaddr, lan router: $lan_router, ip root: $ip_root"
 if [ "$DEBUG_MODE" = "false" ] ; then
 
 # Set either WiFi or Lan fixed ip address not both
-   if [ "SET_WIFI_IPADDR" = "true" ] ; then
-      set_static_wlan $wan_ipaddr
+   if [ "$SET_WIFI_IPADDR" = "true" ] ; then
+      set_static_wan $wan_ipaddr
    else
       set_static_lan $lan_ipaddr $lan_router
    fi
@@ -256,7 +279,7 @@ if [ "$DEBUG_RESET_NETWORKING" = "true" ] ; then
       systemctl disable NetworkManager.service
    fi
    systemctl daemon-reload
-   systemctl restart dhcpcd.service
+   systemctl --no-pager restart dhcpcd.service
    service networking restart
 fi
 

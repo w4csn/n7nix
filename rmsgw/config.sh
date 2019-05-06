@@ -24,26 +24,26 @@ REQUIRED_PRGMS="rmschanstat python rmsgw rmsgw_aci"
 
 function get_callsign() {
 
-# Check if call sign var has already been set
-if [ "$CALLSIGN" == "N0ONE" ] ; then
-   echo "Enter call sign, followed by [enter]:"
-   read -e CALLSIGN
+    # Check if call sign var has already been set
+    if [ "$CALLSIGN" == "N0ONE" ] ; then
+        echo "Enter call sign, followed by [enter]:"
+        read -e CALLSIGN
+    fi
+    # Validate callsign
+    sizecallstr=${#CALLSIGN}
 
-   sizecallstr=${#CALLSIGN}
+    if (( sizecallstr > 6 )) || ((sizecallstr < 3 )) ; then
+        echo "Invalid call sign: $CALLSIGN, length = $sizecallstr"
+        exit 1
+    fi
 
-   if (( sizecallstr > 6 )) || ((sizecallstr < 3 )) ; then
-      echo "Invalid call sign: $CALLSIGN, length = $sizecallstr"
-      exit 1
-   fi
+    # Convert callsign to upper case
+    CALLSIGN=$(echo "$CALLSIGN" | tr '[a-z]' '[A-Z]')
 
-   # Convert callsign to upper case
-   CALLSIGN=$(echo "$CALLSIGN" | tr '[a-z]' '[A-Z]')
-fi
-
-dbgecho "Using CALL SIGN: $CALLSIGN"
+    dbgecho "Using CALL SIGN: $CALLSIGN"
 }
 
-# ===== function get_gridsquaree
+# ===== function get_gridsquare
 function get_gridsquare() {
 
 # Check if gridsquare var has already been set
@@ -159,10 +159,12 @@ sed -i -e "/AA00AA/ s/AA00AA/$GRIDSQUARE/" $RMSGW_CHANFILE
 sed -i -e "/144000000/ s/144000000/$FREQUENCY/" $RMSGW_CHANFILE
 }
 
+#
 # ===== main
+#
+
 echo
 echo "rmsgw config START"
-echo "Check for required files ..."
 
 # Be sure we're running as root
 if [[ $EUID != 0 ]] ; then
@@ -170,6 +172,7 @@ if [[ $EUID != 0 ]] ; then
    exit 1
 fi
 
+echo "Check for required files ..."
 EXITFLAG=false
 for prog_name in `echo ${REQUIRED_PRGMS}` ; do
    type -P $prog_name &>/dev/null
@@ -179,8 +182,9 @@ for prog_name in `echo ${REQUIRED_PRGMS}` ; do
       EXITFLAG=true
    fi
 done
-if [ "$EXITFLAG" = "true" ] ; then
-  exit 1
+
+if $EXITFLAG ; then
+    exit 1
 fi
 
 # if there are any args on command line assume it's a callsign

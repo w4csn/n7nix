@@ -1,11 +1,14 @@
 # How to use measure_deviate.sh
 
-#### Usage: measure_deviate.sh [-f _tone_frequency_][-c _connector_type_][-l _tone_duration_][-d][-h]
+* This script creates an audio tone that can be used to help set FM deviation for your radio.
+* Please read [this excellent write up from John Ackermann N8UR](https://www.febo.com/packet/layer-one/transmit.html)
+
+#### Usage: measure_deviate.sh [-f _tone_frequency_ ][-c _connector_location_ ][-l _tone_duration_ ][-d][-h]
 ```
  -f, --frequency
         tone frequency in Hz (10 - 20000), default: 2200
  -c, --connector
-        connector type either din6 or hd15, default: hd15
+        connector location either left (mDin6) or right (hd15/mDin6), default: right
  -l, --length
         length of tone in seconds, default 30
  -d, --debug
@@ -19,7 +22,7 @@
 ```
 cd ~/bin
 sudo su
-ax25-stop
+./ax25-stop
 ```
 * This script uses [gpio](http://wiringpi.com/), [sox](http://sox.sourceforge.net/) & [aplay](http://linuxcommand.org/man_pages/aplay1.html)
 * To install sox, aplay & gpio
@@ -80,3 +83,18 @@ enabled.
   * 'PCM' is the digital control & will set how many bits the DAC will use.
 
 * **NOTE:** If you can't get close enough with the 'Lo Drive' control (doubtful) then use the 'PCM' control.
+
+### Notes Alinco DR-x35 Mk III
+```
+PCM	        L:[0.00dB],  R:[0.00dB]
+ADC Level	L:[-2.50dB], R:[-2.50dB]
+LO Driver Gain  L:[11.00dB], R:[11.00dB]
+```
+
+### Notes Kenwood TM-V71a
+```
+$ ./alsa-show.sh
+PCM	        L:[0.00dB],  R:[0.00dB]
+ADC Level	L:[-2.00dB], R:[-2.00dB]
+LO Driver Gain  L:[0.00dB],  R:[0.00dB]
+```
